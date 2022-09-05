@@ -1,0 +1,37 @@
+<mxfile host="65bd71144e">
+    <diagram id="h2lcjQmsm_JIcWCe8NtB" name="Page-1">
+        <mxGraphModel dx="1045" dy="551" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="19" style="edgeStyle=none;html=1;entryX=0.422;entryY=-0.015;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="2" target="12">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="2" value="AioExecutorManager&lt;br&gt;------------&lt;br&gt;&lt;div style=&quot;text-align: left&quot;&gt;__init__:&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;executor&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;context&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;executor type&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;plugins&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;br&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;fn:&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;create_processing_chain&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;configure_executor&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;run(result_q = None)&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                    <mxGeometry x="80" y="100" width="180" height="240" as="geometry"/>
+                </mxCell>
+                <mxCell id="15" value="" style="edgeStyle=none;html=1;" edge="1" parent="1" source="12" target="14">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="12" value="&lt;div style=&quot;text-align: left&quot;&gt;&lt;span&gt;AioExecutor&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;span&gt;-------&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;span&gt;__init__:&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;span&gt;context&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;span&gt;processes&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;span&gt;preprocess&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;span&gt;postrocess&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;queues&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;br&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;fn:&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;run&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;span&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=center;" vertex="1" parent="1">
+                    <mxGeometry x="100" y="390" width="180" height="260" as="geometry"/>
+                </mxCell>
+                <mxCell id="18" value="" style="edgeStyle=none;html=1;" edge="1" parent="1" source="14" target="17">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="14" value="AioProcessWorker&lt;br&gt;-----&lt;br&gt;&lt;div style=&quot;text-align: left&quot;&gt;__init__:&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;in_q&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;out_q&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;concurrency_level&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;ignore_errors&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;timeout&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;finished: Event&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;br&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;fn :&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;process_workload&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;run_async&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;br&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;br&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=center;" vertex="1" parent="1">
+                    <mxGeometry x="414" y="100" width="180" height="260" as="geometry"/>
+                </mxCell>
+                <mxCell id="21" value="" style="edgeStyle=none;html=1;" edge="1" parent="1" source="17" target="20">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="17" value="AioCoroutineWorker&lt;br&gt;-----&lt;br&gt;&lt;div style=&quot;text-align: left&quot;&gt;__init__:&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;in_q&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;out_q&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;worker_name&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;ignore_errors&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;timeout&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;finished: Event&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;scope: CancelScope&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;signum: signal&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;br&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;fn :&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;process_workload&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;handle_command&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;handle_processing&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=center;" vertex="1" parent="1">
+                    <mxGeometry x="410" y="400" width="180" height="270" as="geometry"/>
+                </mxCell>
+                <mxCell id="20" value="AioCoroutineWorker&lt;br&gt;-----&lt;br&gt;&lt;div style=&quot;text-align: left&quot;&gt;__init__:&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;in_q&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;out_q&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;worker_name&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;ignore_errors&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;timeout&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;finished: Event&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;scope: CancelScope&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;signum: signal&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;&lt;br&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;fn :&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;process_workload&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;handle_command&lt;/div&gt;&lt;div style=&quot;text-align: left&quot;&gt;handle_processing&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=center;" vertex="1" parent="1">
+                    <mxGeometry x="410" y="750" width="180" height="270" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
