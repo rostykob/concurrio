@@ -7,16 +7,15 @@ from multiprocessing import Pipe, Queue
 from multiprocessing.connection import Connection
 from queue import Empty
 from typing import Any, Callable, Dict, List, Optional
-from unittest import result
 
 import anyio
-import loguru
 import sniffio._impl as sniff
 from exceptions.worker_exceptions import ForceCancelException, UnknownCommandException
 from schemas.command import Command, CommandType
 from schemas.processor import ProcessingStates, Processor
+from utils import common_utils
 
-from core.scheduler import Scheduler
+from core.schedulers import Scheduler
 
 
 class AioMainProcessWorker:
@@ -40,7 +39,7 @@ class AioMainProcessWorker:
         self.ignore_errors: bool = ignore_errors
         self.timeout: float = timeout
         self.result_handler: AioCoroutineResultHandler = result_handler
-        self.logger = logger if logger else loguru.logger
+        self.logger = logger if logger else common_utils.logger
         self.lock: anyio.Lock = None
         # TODO: Implement logic for force cancel
         # self.prioritize: bool = prioritize
@@ -121,7 +120,7 @@ class AioProcessWorker:
         self.concurrency_level: int = concurrency_level
         self.ignore_errors: bool = ignore_errors
         self.timeout: float = timeout
-        self.logger = logger if logger else loguru.logger
+        self.logger = logger if logger else common_utils.logger
         self.f_cancel_pipe: Connection = f_cancel_pipe
 
     async def process_workload(self) -> None:
@@ -190,7 +189,7 @@ class AioCoroutineWorker:
         self.worker_name: str = worker_name
         self.scope: anyio.CancelScope = scope
         self.signum: signal.SIGINT = None
-        self.logger = logger if logger else loguru.logger
+        self.logger = logger if logger else common_utils.logger
         self.f_cancel_pipe: Connection = f_cancel_pipe
 
     async def process_workload(self, signum: signal) -> None:
@@ -215,7 +214,6 @@ class AioCoroutineWorker:
                 except ForceCancelException:
                     raise anyio.get_cancelled_exc_class()()
                 except Empty:
-                    self.logger.debug(f"No Items in queue at the moment, waiting...")
                     await anyio.sleep(0)
                     continue
                 except anyio.get_cancelled_exc_class():
@@ -309,7 +307,7 @@ class AioCoroutineResultHandler:
         self.results: List[Any] = []
         self.common_qids_iter: cycle = cycle(list(self.in_qs.keys()))
         self.signum: Optional[signal.signal] = None
-        self.logger = logger if logger else loguru.logger
+        self.logger = logger if logger else common_utils.logger
         self.common_q_scheduler = common_q_scheduler
         self._work_items_size = work_items_size
         self.processed: Dict[str, int] = {}
@@ -346,7 +344,6 @@ class AioCoroutineResultHandler:
             except ForceCancelException as ex:
                 raise anyio.get_cancelled_exc_class()(str(ex))
             except Empty:
-                self.logger.debug(f"No Items in queue at the moment, waiting...")
                 await anyio.sleep(0)
                 continue
             except anyio.get_cancelled_exc_class():

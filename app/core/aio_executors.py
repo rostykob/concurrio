@@ -1,38 +1,31 @@
 import inspect
+import logging
 import multiprocessing
 import os
 from logging import Logger
 from multiprocessing.context import BaseContext
 from multiprocessing.queues import Queue
 from re import I
-from typing import (
-    Any,
-    Awaitable,
-    Callable,
-    Dict,
-    Iterable,
-    List,
-    Literal,
-    Optional,
-    Tuple,
-)
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional
 
 import anyio
-import loguru
-from loguru import logger
+from interfaces.abs_executors import AbsExecutor
+from interfaces.abs_shedulers import AbsScheduler
+from schemas.alliases import FunctionWithParameters, QueueCollection
 from schemas.command import Command, CommandType
 from schemas.processor import Processor
 from schemas.queues import QueueType
+from utils import common_utils
 
 from core.aio_workers import (
     AioCoroutineResultHandler,
     AioMainProcessWorker,
     AioProcessWorker,
 )
-from core.scheduler import Scheduler
+from core.schedulers import Scheduler
 
 
-class ParallelConcurrentExecutor:
+class AioExecutorBase(AbsExecutor):
     def __init__(
         self,
         ctx: Literal["fork", "spawn"] = "fork",
@@ -42,22 +35,18 @@ class ParallelConcurrentExecutor:
         init_args: Optional[Iterable[Any]] = None,
         logger: Optional[Logger] = None,
     ):
-        self.queues: Dict[str, Dict[str, Queue]] = self.initialize_queues_dict()
+        self.logger = logger if logger else common_utils.logger
+        self.queues: QueueCollection = self.initialize_queues_dict()
         self.context: BaseContext = multiprocessing.get_context(ctx)
         self.processes = self.get_max_allowed_processes(processes)
-        self.result_q: Dict[str, Queue] = None
+        self.result_q: Dict[str, multiprocessing.Queue] = None
         self.init_fn: Optional[Callable] = init_fn
         self.init_args: Optional[Iterable[Any]] = init_args
-        self.logger = logger if logger else loguru.logger
         self.concurrency = concurrency
         self._process_workers: List[multiprocessing.Process] = []
-        self.common_q_scheduler: Scheduler = None
+        self.common_q_scheduler: AbsScheduler = None
 
-        # TODO: implement later priority queue
-        # if processes > 1:
-        #     self.register_queue("priority")
-
-    def initialize_queues_dict(self) -> Dict[str, Dict[str, Queue]]:
+    def initialize_queues_dict(self) -> QueueCollection:
         q = {}
         for qt in QueueType:
             q[qt.value] = {}
@@ -69,39 +58,80 @@ class ParallelConcurrentExecutor:
     def register_queue(self, q_type: str) -> None:
         id = self.get_queue_id(q_type)
         self.queues[QueueType[q_type].value][id] = self.context.Queue()
-        logger.info(f"Queue registered with id {id} type {q_type}")
+        self.logger.info(f"Queue registered with id {id} type {q_type}")
         return id
 
     def get_max_allowed_processes(self, processes: int) -> int:
         max_processes = os.cpu_count() - 1 if os.cpu_count() > 1 else 1
         if processes > max_processes:
-            logger.warning(
+            self.logger.warning(
                 f"Cannot use so many processes {processes}, I will use max possible value {max_processes}"
             )
             processes = max_processes
         elif processes < 0:
-            logger.warning(f"Negative numbers not allowed {max_processes} will be used")
+            self.logger.warning(
+                f"Negative numbers not allowed {max_processes} will be used"
+            )
             processes = max_processes
         elif not processes or processes == 0:
             processes = max_processes
-            logger.info(f"{max_processes} will be used")
+            self.logger.info(f"{max_processes} will be used")
         else:
-            logger.info(f"{processes} will be used")
+            self.logger.info(f"{processes} will be used")
         return processes
+
+    def release_resources(self) -> None:
+        self._process_workers = []
+        self.common_q_scheduler = None
+        self.queues = self.initialize_queues_dict()
+        self.result_q = None
+
+    def start_processes(self):
+        for process in self._process_workers:
+            process.start()
+
+    async def _preprocess_items(
+        self,
+        processing_setting: FunctionWithParameters,
+        work_items: Iterable,
+        prefix: str,
+    ):
+        self.logger.debug(
+            f"{prefix}processing settings defined. Starting {prefix.lower()}processing using {processing_setting[0].__name__}"
+        )
+        if inspect.iscoroutinefunction(processing_setting[0]):
+            work_items = await processing_setting[0](
+                work_items, **processing_setting[1]
+            )
+        else:
+            work_items = processing_setting[0](work_items, **processing_setting[1])
+        m = f"{prefix}processing done"
+        if prefix == "Pre":
+            m = m + f", {len(work_items)} work_items defined"
+        self.logger.info(m)
+        return work_items
+
+
+class ParallelConcurrentExecutor(AioExecutorBase):
+    def __init__(
+        self,
+        ctx: Literal["fork", "spawn"] = "fork",
+        processes: int = 0,
+        concurrency: int = 10,
+        init_fn: Optional[Callable] = None,
+        init_args: Optional[Iterable[Any]] = None,
+        logger: Optional[Logger] = None,
+    ):
+        super().__init__(ctx, processes, concurrency, init_fn, init_args, logger)
+        # if processes > 1:
+        #     self.register_queue("priority")
 
     async def process(
         self,
         work_items: Iterable,
         function_processor: Processor,
-        pre_processing_setting: Optional[
-            Tuple[
-                Callable | Awaitable,
-                Dict[str, Any],
-            ]
-        ] = None,
-        post_processing_setting: Optional[
-            Tuple[Callable | Awaitable, Dict[str, Any]]
-        ] = None,
+        pre_processing_setting: FunctionWithParameters = None,
+        post_processing_setting: FunctionWithParameters = None,
         ignore_errors: bool = False,
         timeout: float = 120,
         result_q: Queue = None,
@@ -114,7 +144,7 @@ class ParallelConcurrentExecutor:
             )
         if pre_processing_setting:
             work_items = await self._preprocess_items(
-                pre_processing_setting=pre_processing_setting,
+                processing_setting=pre_processing_setting,
                 prefix="Pre",
                 work_items=work_items,
             )
@@ -132,8 +162,7 @@ class ParallelConcurrentExecutor:
             qid = self.common_q_scheduler.schedule()
             self.queues[QueueType.common.value][qid].put_nowait(cmd)
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(self.start_processes)
+        await self.wait_for_results()
 
         results = None
         if not result_q:
@@ -143,24 +172,17 @@ class ParallelConcurrentExecutor:
                 raise results
             if post_processing_setting and results:
                 work_items = await self._preprocess_items(
-                    pre_processing_setting=pre_processing_setting,
+                    processing_setting=pre_processing_setting,
                     prefix="Post",
                     work_items=work_items,
                 )
         self.release_resources()
         return results
 
-    def release_resources(self) -> None:
-        self._process_workers = []
-        self.common_q_scheduler = None
-        self.queues = self.initialize_queues_dict()
-        self.result_q = None
-
-    async def start_processes(self):
-        for process in self._process_workers:
-            process.start()
-        for process in self._process_workers:
-            await anyio.to_thread.run_sync(process.join)
+    async def wait_for_results(self):
+        async with anyio.create_task_group() as tg:
+            for process in self._process_workers:
+                tg.start_soon(anyio.to_thread.run_sync, process.join)
 
     def setup_processes(
         self,
@@ -218,26 +240,4 @@ class ParallelConcurrentExecutor:
             )
             self._process_workers.append(p)
         self._process_workers.reverse()
-
-    async def _preprocess_items(
-        self,
-        pre_processing_setting: Tuple[Callable | Awaitable, Dict[str, Any]],
-        work_items: Iterable,
-        prefix: str,
-    ):
-        self.logger.debug(
-            f"{prefix}processing settings defined. Starting {prefix.lower()}processing using {pre_processing_setting[0].__name__}"
-        )
-        if inspect.iscoroutinefunction(pre_processing_setting[0]):
-            work_items = await pre_processing_setting[0](
-                work_items, **pre_processing_setting[1]
-            )
-        else:
-            work_items = pre_processing_setting[0](
-                work_items, **pre_processing_setting[1]
-            )
-        m = f"{prefix}processing done"
-        if prefix == "Pre":
-            m = m + f", {len(work_items)} work_items defined"
-        logger.success(m)
-        return work_items
+        self.start_processes()

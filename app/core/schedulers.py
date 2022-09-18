@@ -1,13 +1,11 @@
 from itertools import cycle
-from multiprocessing.queues import Queue
-from typing import Dict, List
 
-from loguru import logger
-from schemas.queues import QueueType
+from interfaces.abs_shedulers import AbsScheduler
 
 
-class Scheduler:
+class Scheduler(AbsScheduler):
     def __init__(self, q_ids: str):
+        super().__init__()
         self.qids_iter: cycle = cycle(q_ids)
 
     def schedule(self) -> None:

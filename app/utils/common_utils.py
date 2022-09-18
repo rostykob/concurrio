@@ -1,10 +1,36 @@
 import inspect
+import logging
 from datetime import datetime
 from itertools import islice
 from typing import Any, Awaitable, Callable, Dict, Generator, Iterable, List, Tuple
 
-from loguru import logger
 from schemas.processor import Processor
+
+logging.basicConfig(
+    format="[%(levelname)s][PID:%(process)d][ThreadID:%(thread)d]: %(asctime)s - %(module)s %(funcName)s: %(lineno)d - %(message)s",
+    # level=logging.DEBUG,
+)
+logger = logging.getLogger(__name__)
+
+
+def execution_time(func):
+    async def process(func, *args, **params):
+        if inspect.iscoroutinefunction(func):
+            return await func(*args, **params)
+        else:
+            return func(*args, **params)
+
+    async def helper(*args, **params):
+        start = datetime.now()
+        logger.info(f"{func.__name__} starts execution at {str(start.time())}")
+        result = await process(func, *args, **params)
+        stop = datetime.now()
+        logger.info(
+            f"Function {func.__name__} finished execution at {str(stop.time())}. Executed in {str((stop - start).total_seconds())} sec."
+        )
+        return result
+
+    return helper
 
 
 def create_processor(
@@ -65,9 +91,13 @@ def execution_time(func):
 
     async def helper(*args, **params):
         start = datetime.now()
+        print(f"{func.__name__} starts execution at {str(start.time())}")
         logger.info(f"{func.__name__} starts execution at {str(start.time())}")
         result = await process(func, *args, **params)
         stop = datetime.now()
+        print(
+            f"Function {func.__name__} finished execution at {str(stop.time())}. Executed in {str((stop - start).total_seconds())} sec."
+        )
         logger.info(
             f"Function {func.__name__} finished execution at {str(stop.time())}. Executed in {str((stop - start).total_seconds())} sec."
         )
