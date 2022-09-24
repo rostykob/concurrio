@@ -3,33 +3,77 @@ import signal
 from datetime import datetime
 from itertools import cycle
 from logging import Logger
-from multiprocessing import Pipe, Queue
+from multiprocessing import Queue
 from multiprocessing.connection import Connection
 from queue import Empty
+from signal import SIGINT
 from typing import Any, Callable, Dict, List, Optional
 
 import anyio
 import sniffio._impl as sniff
 from exceptions.worker_exceptions import ForceCancelException, UnknownCommandException
-from schemas.command import Command, CommandType
-from schemas.processor import ProcessingStates, Processor
+from interfaces.abs_handler import AbsResultHandler, CommandHandler, ResultHandlerType
+from interfaces.abs_shedulers import SchedulerType
+from interfaces.abs_worker import AbsCoroutineWorker, AbsProcessWorker
+from schemas.alliases import QueueCollection
+from schemas.command import Command, CommandType, ProcessingCommandType
+from schemas.processor import ProcessingStates, ProcessorType
 from utils import common_utils
 
-from core.schedulers import Scheduler
+
+class ResultHandlerBase(AbsResultHandler):
+    def __init__(
+        self,
+        in_qs: Dict[str, QueueCollection],
+        out_q: Queue,
+        worker_name: str,
+        logger: Logger,
+        work_items_size,
+        common_q_scheduler: SchedulerType,
+        f_cancel_pipes: List[Connection],
+        result_queue: Queue = None,
+        bulk_return: bool = True,
+    ) -> None:
+        super().__init__(
+            in_qs,
+            out_q,
+            worker_name,
+            logger,
+            work_items_size,
+            common_q_scheduler,
+            f_cancel_pipes,
+            result_queue,
+            bulk_return,
+        )
+        self.in_qs: Dict[str, QueueCollection] = in_qs
+        self.out_q: Queue = out_q
+        self.worker_name: str = worker_name
+        self.result_queue: Queue = result_queue
+        self.bulk_return: bool = bulk_return
+        self.results: List[Any] = []
+        self.common_qids_iter: cycle = cycle(list(self.in_qs.keys()))
+        self.signum: Optional[SIGINT] = None
+        self.logger = logger if logger else common_utils.logger
+        self.common_q_scheduler = common_q_scheduler
+        self._work_items_size = work_items_size
+        self.processed: Dict[str, int] = {}
+        self.processed[ProcessingStates.success.value] = 0
+        self.processed[ProcessingStates.failed.value] = 0
+        self._lock: anyio.Lock = None
+        self._f_cancel_pipes: List[Connection] = f_cancel_pipes
+        self.errors: List[str] = list()
 
 
-class AioMainProcessWorker:
+class AioProcessBase(AbsProcessWorker):
     def __init__(
         self,
         q_id: str,
         in_q: Queue,
         out_q: Queue,
-        result_handler: "AioCoroutineResultHandler",
         logger: Logger,
         concurrency_level: int = 10,
         ignore_errors: bool = False,
         timeout: float = 120,
-        # prioritize: bool = True,
     ):
         self.q_id = q_id
         self.in_q: Queue = in_q
@@ -38,11 +82,106 @@ class AioMainProcessWorker:
         self.concurrency_level: int = concurrency_level
         self.ignore_errors: bool = ignore_errors
         self.timeout: float = timeout
-        self.result_handler: AioCoroutineResultHandler = result_handler
         self.logger = logger if logger else common_utils.logger
+
+
+class AioChildProcessBase(AioProcessBase):
+    def __init__(
+        self,
+        q_id: str,
+        in_q: Queue,
+        out_q: Queue,
+        logger: Logger,
+        f_cancel_pipe: Connection,
+        concurrency_level: int = 10,
+        ignore_errors: bool = False,
+        timeout: float = 120,
+    ):
+        super().__init__(
+            q_id,
+            in_q,
+            out_q,
+            logger,
+            concurrency_level,
+            ignore_errors,
+            timeout,
+        )
+        self.f_cancel_pipe: Connection = f_cancel_pipe
+
+
+class AioMainProcessBase(AioProcessBase):
+    def __init__(
+        self,
+        q_id: str,
+        in_q: Queue,
+        out_q: Queue,
+        result_handler: ResultHandlerType,
+        logger: Logger,
+        concurrency_level: int = 10,
+        ignore_errors: bool = False,
+        timeout: float = 120,
+        # prioritize: bool = True,
+    ):
+        super().__init__(
+            q_id,
+            in_q,
+            out_q,
+            logger,
+            concurrency_level,
+            ignore_errors,
+            timeout,
+        )
+        self.result_handler: ResultHandlerType = result_handler
         self.lock: anyio.Lock = None
         # TODO: Implement logic for force cancel
         # self.prioritize: bool = prioritize
+
+
+class AioCoroutineWorkerBase(AbsCoroutineWorker, CommandHandler):
+    def __init__(
+        self,
+        in_q: Queue,
+        out_q: Queue,
+        finished: anyio.Event,
+        ignore_errors: bool,
+        worker_name: str,
+        scope: anyio.CancelScope,
+        logger: Logger,
+        f_cancel_pipe: Optional[Connection] = None,
+    ) -> None:
+        self.in_q: Queue = in_q
+        self.out_q: Queue = out_q
+        self.finished: anyio.Event = finished
+        self.ignore_errors: bool = ignore_errors
+        self.worker_name: str = worker_name
+        self.scope: anyio.CancelScope = scope
+        self.signum: signal.SIGINT = None
+        self.logger = logger if logger else common_utils.logger
+        self.f_cancel_pipe: Connection = f_cancel_pipe
+
+
+class AioMainProcessWorker(AioMainProcessBase):
+    def __init__(
+        self,
+        q_id: str,
+        in_q: Queue,
+        out_q: Queue,
+        result_handler: ResultHandlerType,
+        logger: Logger,
+        concurrency_level: int = 10,
+        ignore_errors: bool = False,
+        timeout: float = 120,
+    ):
+        super().__init__(
+            q_id,
+            in_q,
+            out_q,
+            result_handler,
+            logger,
+            concurrency_level,
+            ignore_errors,
+            timeout,
+        )
 
     async def process_workload(self) -> None:
         self.finished = anyio.Event()
@@ -101,7 +240,7 @@ class AioMainProcessWorker:
         )
 
 
-class AioProcessWorker:
+class AioProcessWorker(AioChildProcessBase):
     def __init__(
         self,
         q_id: str,
@@ -113,15 +252,16 @@ class AioProcessWorker:
         ignore_errors: bool = False,
         timeout: float = 120,
     ):
-        self.q_id = q_id
-        self.in_q: Queue = in_q
-        self.out_q: Queue = out_q
-        self.finished: anyio.Event = None
-        self.concurrency_level: int = concurrency_level
-        self.ignore_errors: bool = ignore_errors
-        self.timeout: float = timeout
-        self.logger = logger if logger else common_utils.logger
-        self.f_cancel_pipe: Connection = f_cancel_pipe
+        super().__init__(
+            q_id,
+            in_q,
+            out_q,
+            logger,
+            f_cancel_pipe,
+            concurrency_level,
+            ignore_errors,
+            timeout,
+        )
 
     async def process_workload(self) -> None:
         self.finished = anyio.Event()
@@ -169,8 +309,7 @@ class AioProcessWorker:
         )
 
 
-# TODO:1) Derrive from Interface 2) Add Generic on Processor and Command
-class AioCoroutineWorker:
+class AioCoroutineWorker(AioCoroutineWorkerBase):
     def __init__(
         self,
         in_q: Queue,
@@ -182,15 +321,16 @@ class AioCoroutineWorker:
         logger: Logger,
         f_cancel_pipe: Optional[Connection] = None,
     ) -> None:
-        self.in_q: Queue = in_q
-        self.out_q: Queue = out_q
-        self.finished: anyio.Event = finished
-        self.ignore_errors: bool = ignore_errors
-        self.worker_name: str = worker_name
-        self.scope: anyio.CancelScope = scope
-        self.signum: signal.SIGINT = None
-        self.logger = logger if logger else common_utils.logger
-        self.f_cancel_pipe: Connection = f_cancel_pipe
+        super().__init__(
+            in_q,
+            out_q,
+            finished,
+            ignore_errors,
+            worker_name,
+            scope,
+            logger,
+            f_cancel_pipe,
+        )
 
     async def process_workload(self, signum: signal) -> None:
         self.signum = signum
@@ -199,7 +339,9 @@ class AioCoroutineWorker:
         try:
             while not self.finished.is_set():
                 if self.signum == signal.SIGINT:
-                    self.logger("Ctrl+C pressed!")
+                    self.logger.warning(
+                        f"Ctrl+C pressed, cancelling processing on worker {self.worker_name}"
+                    )
                     self.scope.cancel()
                     return
                 if self.f_cancel_pipe and self.f_cancel_pipe.poll(0):
@@ -209,7 +351,7 @@ class AioCoroutineWorker:
                     self.logger.debug(
                         f"Worker {self.worker_name} getting item from a queue"
                     )
-                    cmd: Command = self.in_q.get_nowait()
+                    cmd: ProcessingCommandType = self.in_q.get_nowait()
                     await self.handle_command(command=cmd)
                 except ForceCancelException:
                     raise anyio.get_cancelled_exc_class()()
@@ -217,7 +359,9 @@ class AioCoroutineWorker:
                     await anyio.sleep(0)
                     continue
                 except anyio.get_cancelled_exc_class():
-                    self.logger.warning("Cancellation recieved")
+                    self.logger.warning(
+                        f"Cancellation recieved. Processing cancelled on worker {self.worker_name}"
+                    )
                     stop = datetime.now()
                     self.logger.debug(
                         f"Worker {self.worker_name} finished execution at {str(stop)}. Executed in {str((stop - start).total_seconds())} sec."
@@ -232,7 +376,7 @@ class AioCoroutineWorker:
             f"Worker {self.worker_name} finished execution at {str(stop)}. Executed in {str((stop - start).total_seconds())} sec."
         )
 
-    async def handle_processing(self, processor: Processor) -> None:
+    async def handle_processing(self, processor: ProcessorType) -> None:
         self.logger.debug(
             f"Worker {self.worker_name} starting processing item from a queue"
         )
@@ -269,12 +413,14 @@ class AioCoroutineWorker:
             )
             if self.ignore_errors:
                 self.logger.warning(f"Ignore errors is defined so I will continue")
-                command = Command(command_type=CommandType.exception_ignore)
+                command = Command(
+                    command_type=CommandType.exception_ignore, item=str(ex)
+                )
             else:
-                command = Command(command_type=CommandType.exception_fail, item=ex)
+                command = Command(command_type=CommandType.exception_fail, item=str(ex))
             self.out_q.put_nowait(command)
 
-    async def handle_command(self, command: Command) -> None:
+    async def handle_command(self, command: ProcessingCommandType) -> None:
         match command.command_type.value:
             case CommandType.process.value:
                 await self.handle_processing(processor=command.item)
@@ -286,35 +432,30 @@ class AioCoroutineWorker:
                 raise UnknownCommandException()
 
 
-class AioCoroutineResultHandler:
+class AioCoroutineResultHandler(ResultHandlerBase):
     def __init__(
         self,
-        in_qs: Dict[str, Dict[str, Queue]],
+        in_qs: Dict[str, QueueCollection],
         out_q: Queue,
         worker_name: str,
         logger: Logger,
         work_items_size,
-        common_q_scheduler: Scheduler,
-        f_cancel_pipes: List[Pipe],
+        common_q_scheduler: SchedulerType,
+        f_cancel_pipes: List[Connection],
         result_queue: Queue = None,
         bulk_return: bool = True,
     ) -> None:
-        self.in_qs: Dict[str, Queue] = in_qs
-        self.out_q: Queue = out_q
-        self.worker_name: str = worker_name
-        self.result_queue: Queue = result_queue
-        self.bulk_return: bool = bulk_return
-        self.results: List[Any] = []
-        self.common_qids_iter: cycle = cycle(list(self.in_qs.keys()))
-        self.signum: Optional[signal.signal] = None
-        self.logger = logger if logger else common_utils.logger
-        self.common_q_scheduler = common_q_scheduler
-        self._work_items_size = work_items_size
-        self.processed: Dict[str, int] = {}
-        self.processed[ProcessingStates.success.value] = 0
-        self.processed[ProcessingStates.failed.value] = 0
-        self._lock: anyio.Lock = None
-        self._f_cancel_pipes: List[Connection] = f_cancel_pipes
+        super().__init__(
+            in_qs,
+            out_q,
+            worker_name,
+            logger,
+            work_items_size,
+            common_q_scheduler,
+            f_cancel_pipes,
+            result_queue,
+            bulk_return,
+        )
 
     async def process_workload(self, signum: signal) -> None:
         start = datetime.now()
@@ -364,7 +505,7 @@ class AioCoroutineResultHandler:
                 f"Worker {self.worker_name} finished execution at {str(stop)}. Executed in {str((stop - start).total_seconds())} sec."
             )
 
-    async def handle_command(self, command: Command) -> None:
+    async def handle_command(self, command: ProcessingCommandType) -> None:
         match command.command_type.value:
             case CommandType.return_result.value:
                 if self.bulk_return:
@@ -376,7 +517,9 @@ class AioCoroutineResultHandler:
                 cmd = Command(command_type=CommandType.process, item=command.item)
                 self.in_qs[self.common_q_scheduler.schedule()].put_nowait(cmd)
             case CommandType.exception_ignore.value:
-                await self.register_processed_item(ProcessingStates.failed.value)
+                await self.register_processed_item(
+                    ProcessingStates.failed.value, error=command.item
+                )
             case CommandType.exception_fail.value:
                 self.force_cancel_processing(command.item)
             case _:
@@ -387,11 +530,15 @@ class AioCoroutineResultHandler:
             cmd = Command(command_type=CommandType.force_cancel)
             fcp.send(cmd)
         self.result_queue.put_nowait(error)
-        raise ForceCancelException(f"Cancelled due to exception {str(error)}")
+        raise ForceCancelException(f"Cancelled due to exception {error}")
 
-    async def register_processed_item(self, processing_state: str) -> None:
+    async def register_processed_item(
+        self, processing_state: str, error: str = None
+    ) -> None:
         async with self._lock:
             self.processed[processing_state] = self.processed[processing_state] + 1
+            if error:
+                self.errors.append(error)
 
     async def finalize(self) -> Dict[str, int]:
         for q in self.in_qs.values():

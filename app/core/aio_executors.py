@@ -1,11 +1,9 @@
 import inspect
-import logging
 import multiprocessing
 import os
 from logging import Logger
 from multiprocessing.context import BaseContext
 from multiprocessing.queues import Queue
-from re import I
 from typing import Any, Callable, Dict, Iterable, List, Literal, Optional
 
 import anyio
@@ -13,7 +11,7 @@ from interfaces.abs_executors import AbsExecutor
 from interfaces.abs_shedulers import AbsScheduler
 from schemas.alliases import FunctionWithParameters, QueueCollection
 from schemas.command import Command, CommandType
-from schemas.processor import Processor
+from schemas.processor import ProcessorType
 from schemas.queues import QueueType
 from utils import common_utils
 
@@ -129,7 +127,7 @@ class ParallelConcurrentExecutor(AioExecutorBase):
     async def process(
         self,
         work_items: Iterable,
-        function_processor: Processor,
+        function_processor: ProcessorType,
         pre_processing_setting: FunctionWithParameters = None,
         post_processing_setting: FunctionWithParameters = None,
         ignore_errors: bool = False,

@@ -5,9 +5,9 @@ from multiprocessing.context import BaseContext
 from typing import Any, Callable, Dict, Iterable, List, Literal, Optional
 
 from schemas.alliases import FunctionWithParameters, QueueCollection
-from schemas.processor import Processor
+from schemas.processor import ProcessorType
 
-from .abs_shedulers import AbsScheduler
+from .abs_shedulers import SchedulerType
 
 
 class AbsExecutor(metaclass=ABCMeta):
@@ -29,7 +29,7 @@ class AbsExecutor(metaclass=ABCMeta):
         self.logger = None
         self.concurrency = None
         self._process_workers: List[multiprocessing.Process] = None
-        self.common_q_scheduler: AbsScheduler = None
+        self.common_q_scheduler: SchedulerType = None
 
     def get_max_allowed_processes(self, processes: int) -> int:
         ...
@@ -46,7 +46,7 @@ class AbsExecutor(metaclass=ABCMeta):
     async def process(
         self,
         work_items: Iterable,
-        function_processor: Processor,
+        function_processor: ProcessorType,
         pre_processing_setting: Optional[FunctionWithParameters] = None,
         post_processing_setting: Optional[FunctionWithParameters] = None,
         ignore_errors: bool = False,

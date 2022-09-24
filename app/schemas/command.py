@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 from pydantic import BaseModel
 
@@ -17,3 +17,6 @@ class CommandType(Enum):
 class Command(BaseModel):
     command_type: CommandType
     item: Optional[Any]
+
+
+ProcessingCommandType = TypeVar("ProcessingCommandType", bound=Command, covariant=True)
